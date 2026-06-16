@@ -26,6 +26,7 @@ namespace NExtract
   {
     NPathMode::EEnum PathMode;
     NOverwriteMode::EEnum OverwriteMode;
+    NTarMode::EEnum TarMode;
     bool PathMode_Force;
     bool OverwriteMode_Force;
     
@@ -39,12 +40,16 @@ namespace NExtract
 
     UStringVector Paths;
 
+    CInfo();
     void Save() const;
     void Load();
   };
   
   void Save_ShowPassword(bool showPassword);
   bool Read_ShowPassword();
+
+  void Save_TarMode(NTarMode::EEnum mode);
+  NTarMode::EEnum Read_TarMode();
 
   void Save_LimitGB(UInt32 limit_GB);
   UInt32 Read_LimitGB();

@@ -46,10 +46,19 @@ static const UInt32 kLangIDs[] =
   IDX_SETTINGS_WANT_COPY_HISTORY,
   IDX_SETTINGS_WANT_FOLDER_HISTORY,
   IDX_SETTINGS_LOWERCASE_HASHES,
+  IDT_SETTINGS_TAR_EXTRACTION,
   IDT_MEM_USAGE_EXTRACT
   // , IDT_COMPRESS_MEMORY
 };
 #endif
+
+static void AddTarMode(NWindows::NControl::CComboBox &combo,
+    NExtract::NTarMode::EEnum mode, LPCWSTR text, int &curSel, NExtract::NTarMode::EEnum curMode)
+{
+  const int index = (int)combo.AddString_SetItemData(text, (LPARAM)mode);
+  if (mode == curMode)
+    curSel = index;
+}
 
 #define kSettingsTopic "FM/options.htm#settings"
 
@@ -126,6 +135,7 @@ bool CSettingsPage::OnInit()
   _wasChanged = false;
   _largePages_wasChanged = false;
   _memx_wasChanged = false;
+  _tarMode_wasChanged = false;
 
 #ifdef ZIP7_DARKMODE
   _clrMode_wasChanged = false;
@@ -214,6 +224,15 @@ bool CSettingsPage::OnInit()
   CheckButton(IDX_SETTINGS_WANT_FOLDER_HISTORY, st.FolderHistory);
   CheckButton(IDX_SETTINGS_LOWERCASE_HASHES, st.LowercaseHashes);
   // EnableSubItems();
+
+  {
+    _tarModeCombo.Attach(GetItem(IDC_SETTINGS_TAR_EXTRACTION));
+    const NExtract::NTarMode::EEnum tarMode = NExtract::Read_TarMode();
+    int curSel = 0;
+    AddTarMode(_tarModeCombo, NExtract::NTarMode::kDirect,  L"Direct",  curSel, tarMode);
+    AddTarMode(_tarModeCombo, NExtract::NTarMode::kClassic, L"Classic", curSel, tarMode);
+    _tarModeCombo.SetCurSel(curSel);
+  }
 
 
   {
@@ -371,6 +390,12 @@ LONG CSettingsPage::OnApply()
     _memx_wasChanged = false;
   }
 
+  if (_tarMode_wasChanged)
+  {
+    NExtract::Save_TarMode((NExtract::NTarMode::EEnum)(UInt32)_tarModeCombo.GetItemData_of_CurSel());
+    _tarMode_wasChanged = false;
+  }
+
 #ifdef ZIP7_DARKMODE
   if (_clrMode_wasChanged)
   {
@@ -498,6 +523,12 @@ bool CSettingsPage::OnCommand(unsigned code, unsigned itemID, LPARAM param)
       Changed();
     }
 #endif
+
+    if (code == CBN_SELCHANGE && itemID == IDC_SETTINGS_TAR_EXTRACTION)
+    {
+      _tarMode_wasChanged = true;
+      Changed();
+    }
 
     /*
   if (code == CBN_SELCHANGE)

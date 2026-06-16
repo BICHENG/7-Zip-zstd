@@ -35,6 +35,7 @@ struct CExtractOptionsBase
   NExtract::NPathMode::EEnum PathMode;
   NExtract::NOverwriteMode::EEnum OverwriteMode;
   NExtract::NZoneIdMode::EEnum ZoneMode;
+  NExtract::NTarMode::EEnum TarMode;
   NExtractOutDirMode::EEnum OutDirMode;
 
   CExtractNtOptions NtOptions;
@@ -50,6 +51,7 @@ struct CExtractOptionsBase
       PathMode(NExtract::NPathMode::kFullPaths),
       OverwriteMode(NExtract::NOverwriteMode::kAsk),
       ZoneMode(NExtract::NZoneIdMode::kNone),
+      TarMode(NExtract::NTarMode::kDirect),
       OutDirMode(NExtractOutDirMode::k_ReplaceAsterisk)
       {}
 };

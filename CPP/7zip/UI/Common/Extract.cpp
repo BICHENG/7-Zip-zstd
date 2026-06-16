@@ -2,13 +2,17 @@
 
 #include "StdAfx.h"
 
+#include "../../../Common/MyCom.h"
 #include "../../../Common/StringConvert.h"
 
+#include "../../../Windows/Thread.h"
 #include "../../../Windows/FileDir.h"
 #include "../../../Windows/FileName.h"
 #include "../../../Windows/ErrorMsg.h"
 #include "../../../Windows/PropVariant.h"
 #include "../../../Windows/PropVariantConv.h"
+
+#include "../../Common/StreamBinder.h"
 
 #include "../Common/ExtractingFilePath.h"
 #include "../Common/HashCalc.h"
@@ -30,6 +34,267 @@ static void SetErrorMessage(const char *message,
   s += NError::MyFormatMessage(errorCode);
   s += " : ";
   s += fs2us(path);
+}
+
+static bool NameHasTarExtension(const UString &name)
+{
+  const unsigned len = name.Len();
+  return len > 4 && StringsAreEqualNoCase_Ascii(name.RightPtr(4), ".tar");
+}
+
+static int FindTarFormatIndex(const CCodecs *codecs)
+{
+  FOR_VECTOR (i, codecs->Formats)
+    if (codecs->Formats[i].Is_Tar())
+      return (int)i;
+  return -1;
+}
+
+static HRESULT DrainSequentialInStream(ISequentialInStream *stream)
+{
+  Byte buf[1 << 15];
+  for (;;)
+  {
+    UInt32 processed = 0;
+    RINOK(stream->Read(buf, sizeof(buf), &processed))
+    if (processed == 0)
+      return S_OK;
+  }
+}
+
+static bool IsTarPassthroughCandidate(
+    const CCodecs *codecs,
+    const CArchiveLink &arcLink,
+    const NWildcard::CCensorNode &wildcardCensor,
+    const CExtractOptions &options,
+    const CRecordVector<UInt32> &realIndices)
+{
+  const CArc &arc = arcLink.Arcs.Back();
+
+  if (options.StdInMode
+      || options.StdOutMode
+      || options.TestMode
+      || options.TarMode != NExtract::NTarMode::kDirect
+      || options.ElimDup.Val
+      || options.ExcludeDirItems
+      || options.ExcludeFileItems
+      || !wildcardCensor.AreAllAllowed()
+      || realIndices.Size() != 1
+      || realIndices[0] != 0
+      || (arc.FormatIndex >= 0 && codecs->Formats[(unsigned)arc.FormatIndex].Is_Tar())
+      || !NameHasTarExtension(arc.DefaultName))
+    return false;
+
+  return true;
+}
+
+Z7_CLASS_IMP_COM_1(
+  CTarPassthroughExtractCallback
+  , IArchiveExtractCallback
+)
+  Z7_IFACE_COM7_IMP(IProgress)
+
+  CMyComPtr<ISequentialOutStream> _outStream;
+public:
+  Int32 OperationResult;
+
+  CTarPassthroughExtractCallback():
+      OperationResult(NArchive::NExtract::NOperationResult::kOK)
+    {}
+
+  void Init(ISequentialOutStream *outStream)
+  {
+    _outStream = outStream;
+    OperationResult = NArchive::NExtract::NOperationResult::kOK;
+  }
+
+  void CloseStream() { _outStream.Release(); }
+};
+
+Z7_COM7F_IMF(CTarPassthroughExtractCallback::SetTotal(UInt64 /* total */))
+  { return S_OK; }
+
+Z7_COM7F_IMF(CTarPassthroughExtractCallback::SetCompleted(const UInt64 * /* completeValue */))
+  { return S_OK; }
+
+Z7_COM7F_IMF(CTarPassthroughExtractCallback::GetStream(UInt32 index,
+    ISequentialOutStream **outStream, Int32 askExtractMode))
+{
+  *outStream = NULL;
+  if (index != 0)
+    return E_INVALIDARG;
+  if (askExtractMode == NArchive::NExtract::NAskMode::kExtract)
+  {
+    CMyComPtr<ISequentialOutStream> stream = _outStream;
+    *outStream = stream.Detach();
+  }
+  return S_OK;
+}
+
+Z7_COM7F_IMF(CTarPassthroughExtractCallback::PrepareOperation(Int32 /* askExtractMode */))
+  { return S_OK; }
+
+Z7_COM7F_IMF(CTarPassthroughExtractCallback::SetOperationResult(Int32 opRes))
+{
+  OperationResult = opRes;
+  CloseStream();
+  return S_OK;
+}
+
+struct CTarPassthroughThread
+{
+  NWindows::CThread Thread;
+  CMyComPtr<IInArchive> Archive;
+  CMyComPtr<IArchiveExtractCallback> Callback;
+  CTarPassthroughExtractCallback *CallbackSpec;
+  HRESULT Result;
+
+  CTarPassthroughThread(): CallbackSpec(NULL), Result(S_OK) {}
+
+  WRes Create() { return Thread.Create(ThreadFunc, this); }
+  HRESULT Wait_Close()
+  {
+    const WRes wres = Thread.Wait_Close();
+    return wres == 0 ? S_OK : HRESULT_FROM_WIN32(wres);
+  }
+
+  static THREAD_FUNC_DECL ThreadFunc(void *param)
+  {
+    CTarPassthroughThread *p = (CTarPassthroughThread *)param;
+    const UInt32 index = 0;
+    p->Result = p->Archive->Extract(&index, 1, 0, p->Callback);
+    p->CallbackSpec->CloseStream();
+    return THREAD_FUNC_RET_ZERO;
+  }
+};
+
+static HRESULT ExtractTarPassthrough(
+    CCodecs *codecs,
+    const CArc &outerArc,
+    IInArchive *outerArchive,
+    UInt64 packSize,
+    const CExtractOptions &options,
+    IExtractCallbackUI *callback,
+    IFolderArchiveExtractCallback *callbackFAE,
+    CArchiveExtractCallback *ecs,
+    const FString &outDir,
+    const UStringVector &removePathParts)
+{
+  const int tarFormatIndex = FindTarFormatIndex(codecs);
+  if (tarFormatIndex < 0)
+    return S_FALSE;
+
+  CMyComPtr<IInArchive> tarArchive;
+  RINOK(codecs->CreateInArchive((unsigned)tarFormatIndex, tarArchive))
+  if (!tarArchive)
+    return S_FALSE;
+
+  CMyComPtr<IArchiveOpenSeq> tarOpenSeq;
+  tarArchive.QueryInterface(IID_IArchiveOpenSeq, (void **)&tarOpenSeq);
+  if (!tarOpenSeq)
+    return S_FALSE;
+
+  CStreamBinder binder;
+  CMyComPtr<ISequentialInStream> tarInStream;
+  CMyComPtr<ISequentialOutStream> outerOutStream;
+  binder.CreateStreams2(tarInStream, outerOutStream);
+  RINOK(binder.Create_ReInit())
+
+  CTarPassthroughExtractCallback *outerCallbackSpec = new CTarPassthroughExtractCallback;
+  CMyComPtr<IArchiveExtractCallback> outerCallback = outerCallbackSpec;
+  outerCallbackSpec->Init(outerOutStream);
+  outerOutStream.Release();
+
+  CTarPassthroughThread thread;
+  thread.Archive = outerArchive;
+  thread.Callback = outerCallback;
+  thread.CallbackSpec = outerCallbackSpec;
+  outerCallback.Release();
+
+  WRes wres = thread.Create();
+  if (wres != 0)
+    return HRESULT_FROM_WIN32(wres);
+
+  HRESULT result = tarOpenSeq->OpenSeq(tarInStream);
+  tarOpenSeq.Release();
+
+  CArc tarArc;
+  if (result == S_OK)
+  {
+    const CArcInfoEx &tarInfo = codecs->Formats[(unsigned)tarFormatIndex];
+    tarArc.Archive = tarArchive;
+    tarArc.IsParseArc = false;
+    tarArc.FormatIndex = tarFormatIndex;
+    tarArc.IsReadOnly = true;
+    tarArc.Ask_AltStream = tarInfo.Flags_AltStreams();
+    tarArc.SubfileIndex = (UInt32)(Int32)-1;
+    tarArc.Path = outerArc.DefaultName;
+    tarArc.filePath = outerArc.filePath;
+    tarArc.DefaultName = outerArc.DefaultName;
+    tarArc.MTime.Clear();
+    result = outerArc.GetItem_MTime(0, tarArc.MTime);
+    tarArc.Offset = 0;
+    tarArc.PhySize = 0;
+    tarArc.PhySize_Defined = false;
+    tarArc.FileSize = 0;
+    tarArc.AvailPhySize = 0;
+    tarArc.ArcStreamOffset = 0;
+    tarArc.ErrorInfo.ClearErrors_Full();
+    tarArc.NonOpen_ErrorInfo.ClearErrors_Full();
+
+    if (result == S_OK)
+    {
+      ecs->Init(
+          options.NtOptions,
+          NULL,
+          &tarArc,
+          callbackFAE,
+          false, false,
+          outDir,
+          removePathParts, false,
+          packSize);
+
+      CArchiveExtractCallback_Closer ecsCloser(ecs);
+
+      IArchiveExtractCallback *aec = ecs;
+      const UInt64 val = 0;
+      result = aec->SetCompleted(&val);
+      if (result == S_OK)
+        result = tarArchive->Extract(NULL, (UInt32)(Int32)-1, 0, aec);
+      if (result == S_OK)
+        result = DrainSequentialInStream(tarInStream);
+
+      const HRESULT res2 = ecsCloser.Close();
+      if (result == S_OK)
+        result = res2;
+    }
+  }
+
+  {
+    const HRESULT res2 = tarArchive->Close();
+    if (result == S_OK)
+      result = res2;
+  }
+  tarInStream.Release();
+
+  {
+    const HRESULT res2 = thread.Wait_Close();
+    if (result == S_OK)
+      result = res2;
+  }
+  if (result == S_OK)
+    result = thread.Result;
+  if (result == S_OK && outerCallbackSpec->OperationResult != NArchive::NExtract::NOperationResult::kOK)
+  {
+    CMyComPtr<IFolderArchiveExtractCallback2> callbackFAE2;
+    callbackFAE->QueryInterface(IID_IFolderArchiveExtractCallback2, (void **)&callbackFAE2);
+    if (callbackFAE2)
+      result = callbackFAE2->ReportExtractResult(outerCallbackSpec->OperationResult, 0, outerArc.DefaultName);
+    else
+      result = callbackFAE->SetOperationResult(outerCallbackSpec->OperationResult, 0);
+  }
+
+  return callback->ExtractResult(result);
 }
 
 
@@ -196,6 +461,18 @@ static HRESULT DecompressArchive(
     SetErrorMessage("Cannot create output directory", outDir, res, errorMessage);
     return res;
   }
+
+  if (IsTarPassthroughCandidate(codecs, arcLink, wildcardCensor, options, realIndices))
+    return ExtractTarPassthrough(
+        codecs,
+        arc, archive,
+        packSize,
+        options,
+        callback,
+        callbackFAE,
+        ecs,
+        outDir,
+        removePathParts);
 
   ecs->Init(
       options.NtOptions,

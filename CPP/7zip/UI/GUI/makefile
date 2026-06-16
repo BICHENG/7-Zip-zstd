@@ -76,6 +76,7 @@ WIN_CTRL_OBJS = \
   $O\MultiOutStream.obj \
   $O\ProgressUtils.obj \
   $O\PropId.obj \
+  $O\StreamBinder.obj \
   $O\StreamObjects.obj \
   $O\StreamUtils.obj \
   $O\UniqBlocks.obj \

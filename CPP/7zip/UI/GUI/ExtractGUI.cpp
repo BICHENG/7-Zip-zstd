@@ -221,6 +221,11 @@ HRESULT ExtractGUI(
 
 #ifndef Z7_SFX
   bool OpnTrgFold = false;
+#ifndef Z7_NO_REGISTRY
+  NExtract::CInfo extractInfo;
+  extractInfo.Load();
+  options.TarMode = extractInfo.TarMode;
+#endif
 #endif
   if (!options.TestMode)
   {
@@ -276,13 +281,11 @@ HRESULT ExtractGUI(
       extractCallback->PasswordIsDefined = !dialog.Password.IsEmpty();
       #endif
     }
-    #ifndef Z7_SFX
+    #if !defined(Z7_SFX) && !defined(Z7_NO_REGISTRY)
     else if (!options.OutputDir.IsEmpty()) // don't open target folder if extract here
     {
       // load setting "open target folder" from registry saved by previous dialog
-      NExtract::CInfo _info;
-      _info.Load();
-      OpnTrgFold = _info.OpnTrgFold.Val;
+      OpnTrgFold = extractInfo.OpnTrgFold.Val;
     }
     #endif
     if (!MyGetFullPathName(outputDir, options.OutputDir))

@@ -701,6 +701,14 @@ SOURCE=..\..\Common\StreamObjects.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\..\Common\StreamBinder.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\..\Common\StreamBinder.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\..\Common\StreamUtils.cpp
 # End Source File
 # Begin Source File

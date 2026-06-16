@@ -94,6 +94,7 @@ static LPCTSTR const kKeyName = TEXT("Extraction");
 
 static LPCTSTR const kExtractMode = TEXT("ExtractMode");
 static LPCTSTR const kOverwriteMode = TEXT("OverwriteMode");
+static LPCTSTR const kTarExtraction = TEXT("TarExtraction");
 static LPCTSTR const kShowPassword = TEXT("ShowPassword");
 static LPCTSTR const kOpnTrgFold = TEXT("OpnTrgFold");
 static LPCTSTR const kPathHistory = TEXT("PathHistory");
@@ -102,6 +103,16 @@ static LPCTSTR const kElimDup = TEXT("ElimDup");
 // static LPCTSTR const kAltStreams = TEXT("AltStreams");
 static LPCTSTR const kNtSecur = TEXT("Security");
 static LPCTSTR const kMemLimit = TEXT("MemLimit");
+
+CInfo::CInfo():
+    PathMode(NPathMode::kCurPaths),
+    OverwriteMode(NOverwriteMode::kAsk),
+    TarMode(NTarMode::kDirect),
+    PathMode_Force(false),
+    OverwriteMode_Force(false)
+{
+  SplitDest.Val = true;
+}
 
 void CInfo::Save() const
 {
@@ -114,6 +125,7 @@ void CInfo::Save() const
     key.SetValue(kExtractMode, (UInt32)PathMode);
   if (OverwriteMode_Force)
     key.SetValue(kOverwriteMode, (UInt32)OverwriteMode);
+  key.SetValue(kTarExtraction, (UInt32)TarMode);
 
   Key_Set_BoolPair(key, kSplitDest, SplitDest);
   Key_Set_BoolPair(key, kElimDup, ElimDup);
@@ -137,6 +149,14 @@ void Save_ShowPassword(bool showPassword)
   key.SetValue(kShowPassword, showPassword);
 }
 
+void Save_TarMode(NTarMode::EEnum mode)
+{
+  CS_LOCK
+  CKey key;
+  CreateMainKey(key, kKeyName);
+  key.SetValue(kTarExtraction, (UInt32)mode);
+}
+
 void Save_LimitGB(UInt32 limit_GB)
 {
   CS_LOCK
@@ -147,12 +167,7 @@ void Save_LimitGB(UInt32 limit_GB)
 
 void CInfo::Load()
 {
-  PathMode = NPathMode::kCurPaths;
-  PathMode_Force = false;
-  OverwriteMode = NOverwriteMode::kAsk;
-  OverwriteMode_Force = false;
-  
-  SplitDest.Val = true;
+  *this = CInfo();
 
   Paths.Clear();
 
@@ -173,6 +188,8 @@ void CInfo::Load()
     OverwriteMode = (NOverwriteMode::EEnum)v;
     OverwriteMode_Force = true;
   }
+  if (key.GetValue_UInt32_IfOk(kTarExtraction, v) == ERROR_SUCCESS && v <= NTarMode::kClassic)
+    TarMode = (NTarMode::EEnum)v;
 
   Key_Get_BoolPair_true(key, kSplitDest, SplitDest);
 
@@ -192,6 +209,18 @@ bool Read_ShowPassword()
     return showPassword;
   key.GetValue_bool_IfOk(kShowPassword, showPassword);
   return showPassword;
+}
+
+NTarMode::EEnum Read_TarMode()
+{
+  CS_LOCK
+  CKey key;
+  UInt32 v = (UInt32)NTarMode::kDirect;
+  if (OpenMainKey(key, kKeyName) == ERROR_SUCCESS)
+    key.GetValue_UInt32_IfOk(kTarExtraction, v);
+  if (v > NTarMode::kClassic)
+    v = (UInt32)NTarMode::kDirect;
+  return (NTarMode::EEnum)v;
 }
 
 UInt32 Read_LimitGB()

@@ -39,6 +39,15 @@ namespace NZoneIdMode
   };
 }
 
+namespace NTarMode
+{
+  enum EEnum
+  {
+    kDirect,
+    kClassic
+  };
+}
+
 }
 
 #endif

@@ -27,15 +27,18 @@ BEGIN
       "4", m + 30, spin_y, spin_x_size)
   LTEXT "GB", IDT_SETTINGS_MEM_GB, m + 30 + spin_x_size + 8, spin_y + 2, xc - m - 30 - spin_x_size - 8, 8
 
+  LTEXT "tar.* extraction:", IDT_SETTINGS_TAR_EXTRACTION, m, 176, 86, 8
+  COMBOBOX IDC_SETTINGS_TAR_EXTRACTION, m + 90, 172, 70, 40, MY_COMBO
+
   // LTEXT     "Memory usage for Compressing:", IDT_COMPRESS_MEMORY, m, 140, xc, 8
   // COMBOBOX  IDC_SETTINGS_MEM, m , 152, g1xs, yc - 152, MY_COMBO
   // LTEXT     "/ RAM", IDT_SETTINGS_MEM_RAM, m + g1xs + m, 154, xc - g1xs - m, MY_TEXT_NOPREFIX
 
-  MY_CONTROL_CHECKBOX ( "Want ArcHistory",    IDX_SETTINGS_WANT_ARC_HISTORY,        m, 172, xc)
-  MY_CONTROL_CHECKBOX ( "Want PathHistory",   IDX_SETTINGS_WANT_PATH_HISTORY,       m, 184, xc)
-  MY_CONTROL_CHECKBOX ( "Want CopyHistory",   IDX_SETTINGS_WANT_COPY_HISTORY,       m, 196, xc)
-  MY_CONTROL_CHECKBOX ( "Want FolderHistory", IDX_SETTINGS_WANT_FOLDER_HISTORY,     m, 208, xc)
-  MY_CONTROL_CHECKBOX ( "Use Lowercase Hashes", IDX_SETTINGS_LOWERCASE_HASHES,      m, 220, xc)
+  MY_CONTROL_CHECKBOX ( "Want ArcHistory",    IDX_SETTINGS_WANT_ARC_HISTORY,        m, 196, xc)
+  MY_CONTROL_CHECKBOX ( "Want PathHistory",   IDX_SETTINGS_WANT_PATH_HISTORY,       m, 208, xc)
+  MY_CONTROL_CHECKBOX ( "Want CopyHistory",   IDX_SETTINGS_WANT_COPY_HISTORY,       m, 220, xc)
+  MY_CONTROL_CHECKBOX ( "Want FolderHistory", IDX_SETTINGS_WANT_FOLDER_HISTORY,     m, 232, xc)
+  MY_CONTROL_CHECKBOX ( "Use Lowercase Hashes", IDX_SETTINGS_LOWERCASE_HASHES,      m, 244, xc)
 
 #ifdef ZIP7_DARKMODE
   LTEXT "Color Mode:", IDT_COLOR_MODE, m, save_y + 22 + 76, xc, 8

@@ -150,6 +150,7 @@ WIN_OBJS = \
   $O/OutBuffer.o \
   $O/ProgressUtils.o \
   $O/PropId.o \
+  $O/StreamBinder.o \
   $O/StreamObjects.o \
   $O/StreamUtils.o \
   $O/UniqBlocks.o \
